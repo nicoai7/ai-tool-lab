@@ -2,12 +2,24 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
     {
+      "source": "/ad-analyzer",
+      "destination": "https://ad-analyzer-ten.vercel.app/ad-analyzer"
+    },
+    {
       "source": "/ad-analyzer/:path*",
       "destination": "https://ad-analyzer-ten.vercel.app/ad-analyzer/:path*"
     },
     {
+      "source": "/seo",
+      "destination": "https://seo-improve-tool.vercel.app/seo"
+    },
+    {
       "source": "/seo/:path*",
       "destination": "https://seo-improve-tool.vercel.app/seo/:path*"
+    },
+    {
+      "source": "/email",
+      "destination": "https://email-tool-lime-kappa.vercel.app/email"
     },
     {
       "source": "/email/:path*",

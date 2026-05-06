@@ -33,7 +33,7 @@ async function fetchFromAPI(breakdown: string, dateRange: DateRange): Promise<an
     startDate: dateRange.startDate,
     endDate: dateRange.endDate,
   });
-  const res = await fetch(`/api/insights?${params}`);
+  const res = await fetch(`/ad-analyzer/api/insights?${params}`);
   if (!res.ok) {
     const err = await res.json();
     throw new Error(err.error || 'データの取得に失敗しました');

@@ -48,7 +48,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </nav>
 
       <div className="p-4 border-t border-gray-200">
-        <form action="/api/logout" method="post">
+        <form action="/seo/api/logout" method="post">
           <button
             type="submit"
             className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm text-gray-500 hover:text-gray-800 hover:bg-gray-100 w-full transition"

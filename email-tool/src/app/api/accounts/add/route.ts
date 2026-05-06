@@ -1,5 +1,5 @@
 import { signIn } from "@/lib/auth";
 
 export async function GET() {
-  return signIn("google", { redirectTo: "/dashboard" });
+  return signIn("google", { redirectTo: "/email/dashboard" });
 }

@@ -30,7 +30,7 @@ export default async function DashboardPage() {
             <form
               action={async () => {
                 "use server";
-                await signOut({ redirectTo: "/" });
+                await signOut({ redirectTo: "/email" });
               }}
             >
               <button
