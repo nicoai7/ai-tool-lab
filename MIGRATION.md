@@ -142,6 +142,18 @@ https://ai-tool-lab.net/email/api/auth/callback/google
 
 ---
 
+## 6.5 各ツールの Deployment Protection を無効化
+
+ad-analyzer / seo-tool / email-tool プロジェクトで **Vercel Authentication (Deployment Protection)** が有効になっていると、auth プロジェクトからの rewrite プロキシが Vercel ログイン画面を返してしまいます。
+
+各プロジェクトで:
+1. Vercel ダッシュボード → Settings → **Deployment Protection**
+2. **Vercel Authentication** を **Disabled** に設定
+
+代わりに、各プロジェクトの middleware が **Host チェック**で `ai-tool-lab.net` 以外を 403 でブロックするので、直アクセスは塞がれます。
+
+---
+
 ## 7. デプロイ順序
 
 1. **auth プロジェクトをデプロイ**
