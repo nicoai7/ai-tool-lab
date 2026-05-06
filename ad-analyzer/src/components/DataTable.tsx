@@ -11,13 +11,13 @@ interface DataTableProps {
 }
 
 export default function DataTable({ data, labelHeader, showConversions = true, showBarCharts = true }: DataTableProps) {
-  const maxImpressions = Math.max(...data.map(d => d.impressions));
-  const maxClicks = Math.max(...data.map(d => d.clicks));
-  const maxSpend = Math.max(...data.map(d => d.spend));
-  const maxConversions = Math.max(...data.map(d => d.conversions));
-  const maxCvr = Math.max(...data.map(d => d.cvr));
-  const maxCpc = Math.max(...data.map(d => d.cpc));
-  const maxCpa = Math.max(...data.map(d => d.cpa));
+  const maxImpressions = Math.max(0, ...data.map(d => d.impressions));
+  const maxClicks = Math.max(0, ...data.map(d => d.clicks));
+  const maxSpend = Math.max(0, ...data.map(d => d.spend));
+  const maxConversions = Math.max(0, ...data.map(d => d.conversions));
+  const maxCvr = Math.max(0, ...data.map(d => d.cvr));
+  const maxCpc = Math.max(0, ...data.map(d => d.cpc));
+  const maxCpa = Math.max(0, ...data.map(d => d.cpa));
 
   const barWidth = (value: number, max: number): string => {
     return max > 0 ? `${(value / max) * 100}%` : '0%';

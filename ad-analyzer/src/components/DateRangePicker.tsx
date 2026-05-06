@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Calendar } from 'lucide-react';
+import { formatDateLocal } from '@/lib/date';
 
 interface DateRangePickerProps {
   startDate: string;
@@ -13,31 +14,27 @@ const presets = [
   { label: '今月', getRange: () => {
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), 1);
-    return { start: fmt(start), end: fmt(now) };
+    return { start: formatDateLocal(start), end: formatDateLocal(now) };
   }},
   { label: '先月', getRange: () => {
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const end = new Date(now.getFullYear(), now.getMonth(), 0);
-    return { start: fmt(start), end: fmt(end) };
+    return { start: formatDateLocal(start), end: formatDateLocal(end) };
   }},
   { label: '直近7日', getRange: () => {
     const now = new Date();
     const start = new Date(now);
     start.setDate(start.getDate() - 6);
-    return { start: fmt(start), end: fmt(now) };
+    return { start: formatDateLocal(start), end: formatDateLocal(now) };
   }},
   { label: '直近30日', getRange: () => {
     const now = new Date();
     const start = new Date(now);
     start.setDate(start.getDate() - 29);
-    return { start: fmt(start), end: fmt(now) };
+    return { start: formatDateLocal(start), end: formatDateLocal(now) };
   }},
 ];
-
-function fmt(d: Date): string {
-  return d.toISOString().split('T')[0];
-}
 
 export default function DateRangePicker({ startDate, endDate, onChange }: DateRangePickerProps) {
   const [isOpen, setIsOpen] = useState(false);

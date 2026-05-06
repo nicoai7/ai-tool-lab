@@ -5,11 +5,11 @@ import { revalidateTag } from 'next/cache';
 export async function POST() {
   const cookieStore = await cookies();
   const accountId = cookieStore.get('meta_ad_account_id')?.value;
-  if (accountId) {
-    revalidateTag(`meta-account-${accountId}`);
+
+  if (!accountId) {
+    return NextResponse.json({ error: 'No account selected' }, { status: 400 });
   }
-  cookieStore.delete('meta_access_token');
-  cookieStore.delete('meta_ad_account_id');
-  cookieStore.delete('meta_ad_account_name');
-  return NextResponse.json({ ok: true });
+
+  revalidateTag(`meta-account-${accountId}`);
+  return NextResponse.json({ ok: true, invalidated: `meta-account-${accountId}` });
 }

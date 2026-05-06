@@ -2,71 +2,64 @@
 
 import { BreakdownData, DailyData } from '@/types/meta';
 import { extractConversions, extractCPA } from './meta-api';
+import { getDayOfWeekLocal, parseDateLocal } from './date';
+import { calcMetrics } from './metrics';
 
 const DAYS_OF_WEEK = ['日曜日', '月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日'];
 
-function calcCvr(clicks: number, conversions: number): number {
-  return clicks > 0 ? Math.round((conversions / clicks) * 10000) / 100 : 0;
+type RawInsight = Record<string, unknown> & {
+  impressions?: string;
+  clicks?: string;
+  ctr?: string;
+  cpc?: string;
+  spend?: string;
+  actions?: unknown[];
+  cost_per_action_type?: unknown[];
+  date_start?: string;
+};
+
+function parseRawCommon(item: RawInsight) {
+  const impressions = parseInt(item.impressions || '0', 10);
+  const clicks = parseInt(item.clicks || '0', 10);
+  const ctr = parseFloat(item.ctr || '0');
+  const spend = parseFloat(item.spend || '0');
+  const conversions = extractConversions(item.actions as Parameters<typeof extractConversions>[0]);
+  const cpaFromMeta = extractCPA(item.cost_per_action_type as Parameters<typeof extractCPA>[0]);
+  const cpa = cpaFromMeta || calcMetrics.cpa(spend, conversions);
+  return {
+    impressions,
+    clicks,
+    spend: Math.round(spend),
+    conversions,
+    ctr: Math.round(ctr * 100) / 100,
+    cpc: calcMetrics.cpc(spend, clicks),
+    cvr: calcMetrics.cvr(conversions, clicks),
+    cpa: Math.round(cpa),
+  };
 }
 
 // 汎用ブレイクダウンデータ変換
-export function toBreakdownData(raw: any[], labelFn: (item: any) => string): BreakdownData[] {
+export function toBreakdownData(raw: unknown[], labelFn: (item: unknown) => string): BreakdownData[] {
   return raw.map(item => {
-    const impressions = parseInt(item.impressions || '0', 10);
-    const clicks = parseInt(item.clicks || '0', 10);
-    const ctr = parseFloat(item.ctr || '0');
-    const cpc = parseFloat(item.cpc || '0');
-    const spend = parseFloat(item.spend || '0');
-    const conversions = extractConversions(item.actions);
-    const cpa = extractCPA(item.cost_per_action_type);
-    const cvr = calcCvr(clicks, conversions);
-
-    return {
-      label: labelFn(item),
-      impressions,
-      clicks,
-      ctr: Math.round(ctr * 100) / 100,
-      cpc: Math.round(cpc),
-      spend: Math.round(spend),
-      conversions,
-      cvr,
-      cpa: Math.round(cpa),
-    };
+    const m = parseRawCommon(item as RawInsight);
+    return { label: labelFn(item), ...m };
   });
 }
 
 // 日別データ変換
-export function toDailyData(raw: any[]): DailyData[] {
+export function toDailyData(raw: unknown[]): DailyData[] {
   return raw.map(item => {
-    const impressions = parseInt(item.impressions || '0', 10);
-    const clicks = parseInt(item.clicks || '0', 10);
-    const ctr = parseFloat(item.ctr || '0');
-    const cpc = parseFloat(item.cpc || '0');
-    const spend = parseFloat(item.spend || '0');
-    const conversions = extractConversions(item.actions);
-    const cpa = extractCPA(item.cost_per_action_type);
-    const cvr = calcCvr(clicks, conversions);
-    const date = item.date_start;
-    const dayOfWeek = DAYS_OF_WEEK[new Date(date).getDay()];
-
-    return {
-      date,
-      dayOfWeek,
-      impressions,
-      clicks,
-      ctr: Math.round(ctr * 100) / 100,
-      cpc: Math.round(cpc),
-      spend: Math.round(spend),
-      conversions,
-      cvr,
-      cpa: Math.round(cpa),
-    };
+    const r = item as RawInsight;
+    const m = parseRawCommon(r);
+    const date = r.date_start || '';
+    const dayOfWeek = DAYS_OF_WEEK[getDayOfWeekLocal(date)] || '';
+    return { date, dayOfWeek, ...m };
   });
 }
 
 // 月別ラベル
 export function monthLabel(item: any): string {
-  const d = new Date(item.date_start);
+  const d = parseDateLocal(item.date_start);
   return `${d.getFullYear()}年${d.getMonth() + 1}月`;
 }
 
@@ -137,43 +130,23 @@ export function aggregateByWeekday(dailyData: DailyData[]): BreakdownData[] {
 
   return order.map(dayName => {
     const data = weekdayMap.get(dayName)!;
-    const ctr = data.impressions > 0 ? (data.clicks / data.impressions) * 100 : 0;
-    const cpc = data.clicks > 0 ? data.spend / data.clicks : 0;
-    const cvr = calcCvr(data.clicks, data.conversions);
-    const cpa = data.conversions > 0 ? data.spend / data.conversions : 0;
     return {
       label: dayName,
       impressions: data.impressions,
       clicks: data.clicks,
-      ctr: Math.round(ctr * 100) / 100,
-      cpc: Math.round(cpc),
+      ctr: calcMetrics.ctr(data.clicks, data.impressions),
+      cpc: calcMetrics.cpc(data.spend, data.clicks),
       spend: Math.round(data.spend),
       conversions: data.conversions,
-      cvr,
-      cpa: Math.round(cpa),
+      cvr: calcMetrics.cvr(data.conversions, data.clicks),
+      cpa: calcMetrics.cpa(data.spend, data.conversions),
     };
   });
 }
 
 // アカウントサマリーを生成
-export function toAccountSummary(raw: any[], accountName: string) {
+export function toAccountSummary(raw: unknown[], accountName: string) {
   if (raw.length === 0) return null;
-  const item = raw[0];
-  const impressions = parseInt(item.impressions || '0', 10);
-  const clicks = parseInt(item.clicks || '0', 10);
-  const spend = parseFloat(item.spend || '0');
-  const conversions = extractConversions(item.actions);
-  const cpa = extractCPA(item.cost_per_action_type);
-
-  return {
-    accountName,
-    impressions,
-    clicks,
-    ctr: impressions > 0 ? Math.round((clicks / impressions) * 10000) / 100 : 0,
-    cpc: clicks > 0 ? Math.round(spend / clicks) : 0,
-    spend: Math.round(spend),
-    conversions,
-    cvr: calcCvr(clicks, conversions),
-    cpa: Math.round(cpa),
-  };
+  const m = parseRawCommon(raw[0] as RawInsight);
+  return { accountName, ...m };
 }

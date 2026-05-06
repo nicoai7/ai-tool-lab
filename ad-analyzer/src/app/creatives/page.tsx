@@ -32,13 +32,13 @@ export default function CreativesPage() {
 
   const chartData = data.map(d => ({ name: d.label, 表示回数: d.impressions, クリック率: d.ctr, クリック数: d.clicks, クリック単価: d.cpc, 獲得件数: d.conversions, 獲得単価: d.cpa, ご利用金額: d.spend, 獲得率: d.cvr }));
 
-  const maxImpressions = Math.max(...data.map(d => d.impressions));
-  const maxClicks = Math.max(...data.map(d => d.clicks));
-  const maxSpend = Math.max(...data.map(d => d.spend));
-  const maxConversions = Math.max(...data.map(d => d.conversions));
-  const maxCvr = Math.max(...data.map(d => d.cvr));
-  const maxCpc = Math.max(...data.map(d => d.cpc));
-  const maxCpa = Math.max(...data.map(d => d.cpa));
+  const maxImpressions = Math.max(0, ...data.map(d => d.impressions));
+  const maxClicks = Math.max(0, ...data.map(d => d.clicks));
+  const maxSpend = Math.max(0, ...data.map(d => d.spend));
+  const maxConversions = Math.max(0, ...data.map(d => d.conversions));
+  const maxCvr = Math.max(0, ...data.map(d => d.cvr));
+  const maxCpc = Math.max(0, ...data.map(d => d.cpc));
+  const maxCpa = Math.max(0, ...data.map(d => d.cpa));
 
   const totals = data.reduce(
     (acc, a) => ({ impressions: acc.impressions + a.impressions, clicks: acc.clicks + a.clicks, spend: acc.spend + a.spend, conversions: acc.conversions + a.conversions }),

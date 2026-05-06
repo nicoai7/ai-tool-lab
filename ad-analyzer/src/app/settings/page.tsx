@@ -1,9 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import PageHeader from '@/components/PageHeader';
 import { useAuth } from '@/contexts/AuthContext';
-import { Settings, Link2, Key, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
+import { apiUrl } from '@/lib/api-url';
+import { Link2, CheckCircle, RefreshCw } from 'lucide-react';
 
 interface AdAccount {
   id: string;
@@ -17,6 +19,24 @@ export default function SettingsPage() {
   const { isAuthenticated, isLoading, accountId, accountName, login, logout, selectAccount } = useAuth();
   const [accounts, setAccounts] = useState<AdAccount[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
+  const router = useRouter();
+
+  async function refreshCache() {
+    setRefreshing(true);
+    setRefreshMessage(null);
+    try {
+      const res = await fetch(apiUrl('/api/cache/invalidate'), { method: 'POST' });
+      if (!res.ok) throw new Error('Failed to invalidate cache');
+      setRefreshMessage('キャッシュを更新しました。次回のアクセスで最新データが取得されます。');
+      router.refresh();
+    } catch {
+      setRefreshMessage('キャッシュの更新に失敗しました。');
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -27,7 +47,7 @@ export default function SettingsPage() {
   async function loadAccounts() {
     setLoadingAccounts(true);
     try {
-      const res = await fetch('/ad-analyzer/api/auth/accounts');
+      const res = await fetch(apiUrl('/api/auth/accounts'));
       const data = await res.json();
       if (data.accounts) setAccounts(data.accounts);
     } catch (e) {
@@ -126,37 +146,29 @@ export default function SettingsPage() {
         )}
       </div>
 
-      {/* データ同期設定 */}
-      <div className="bg-card-bg rounded-xl border border-border p-6">
-        <h3 className="font-semibold flex items-center gap-2 mb-4">
-          <Settings size={18} />
-          データ同期設定
-        </h3>
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">自動同期</p>
-              <p className="text-xs text-muted">毎日朝6時にデータを自動取得</p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input type="checkbox" className="sr-only peer" defaultChecked />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:bg-primary after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
-            </label>
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">データ保持期間</p>
-              <p className="text-xs text-muted">過去のデータを保持する期間</p>
-            </div>
-            <select className="border border-border rounded-lg px-3 py-1.5 text-sm">
-              <option>3ヶ月</option>
-              <option>6ヶ月</option>
-              <option>12ヶ月</option>
-              <option>無制限</option>
-            </select>
-          </div>
+      {/* キャッシュ管理 */}
+      {isAuthenticated && (
+        <div className="bg-card-bg rounded-xl border border-border p-6">
+          <h3 className="font-semibold flex items-center gap-2 mb-2">
+            <RefreshCw size={18} />
+            データキャッシュ
+          </h3>
+          <p className="text-xs text-muted mb-4">
+            広告データは10分間キャッシュされます。Meta上で広告を変更した直後など、最新の数値を即座に反映したい場合は更新してください。
+          </p>
+          <button
+            onClick={refreshCache}
+            disabled={refreshing}
+            className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg text-sm hover:bg-primary/90 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+            {refreshing ? '更新中...' : 'キャッシュを更新'}
+          </button>
+          {refreshMessage && (
+            <p className="text-xs text-muted mt-3" role="status">{refreshMessage}</p>
+          )}
         </div>
-      </div>
+      )}
     </div>
   );
 }

@@ -1,21 +1,18 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import { formatDateLocal } from '@/lib/date';
 
 export interface DateRange {
   startDate: string;
   endDate: string;
 }
 
-function formatDate(date: Date): string {
-  return date.toISOString().split('T')[0];
-}
-
 function getDefaultRange(): { start: string; end: string } {
   const end = new Date();
   const start = new Date();
   start.setDate(start.getDate() - 30);
-  return { start: formatDate(start), end: formatDate(end) };
+  return { start: formatDateLocal(start), end: formatDateLocal(end) };
 }
 
 export function useDateRange(defaultStart?: string, defaultEnd?: string) {

@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useState, useMemo, ReactNode } from 'react';
 
 export type Platform = 'meta';
 
@@ -24,9 +24,13 @@ const labels: Record<Platform, string> = {
 
 export function PlatformProvider({ children }: { children: ReactNode }) {
   const [platform, setPlatform] = useState<Platform>('meta');
+  const value = useMemo(
+    () => ({ platform, setPlatform, platformLabel: labels[platform] }),
+    [platform],
+  );
 
   return (
-    <PlatformContext.Provider value={{ platform, setPlatform, platformLabel: labels[platform] }}>
+    <PlatformContext.Provider value={value}>
       {children}
     </PlatformContext.Provider>
   );

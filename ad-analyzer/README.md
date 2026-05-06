@@ -1,6 +1,6 @@
 # Ad Analyzer (Meta広告分析改善ツール)
 
-Meta(Facebook/Instagram)広告のKPIを可視化し、AIで改善提案・競合分析を行うダッシュボード。
+Meta(Facebook/Instagram)広告のKPIを可視化し、AIで改善提案を行うダッシュボード。
 
 - **デプロイ先**: https://ad-analyzer-ten.vercel.app/ai-advice
 - **対象ユーザー**: AIツールラボ公式LINEの友だち登録者(本リポは認証スタンドアロン、ハブとは未連携)
@@ -16,7 +16,6 @@ Meta(Facebook/Instagram)広告のKPIを可視化し、AIで改善提案・競合
 | 階層別レポート | `/{campaigns,adgroups,creatives}` | キャンペーン/広告グループ/広告 |
 | 属性別レポート | `/demographics/{age,device,gender,region,summary}` | デモグラ分析 |
 | AI改善提案 | `/ai-advice` | スコアリング + 改善案(localStorage で対応状況管理) |
-| 競合分析 | `/competitors`, `/competitors/detail` | バズスコア × 4軸(配信規模/鮮度/話題性/クリエイティブ力) |
 | 一括出力 | `/export` | CSV / Excel / PowerPoint で全レポートを一括ダウンロード |
 | 設定 | `/settings` | Meta広告アカウントの選択・接続管理 |
 
@@ -67,7 +66,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 | `META_APP_SECRET` | ✅ | Meta App Secret |
 | `NEXT_PUBLIC_META_APP_ID` | ✅ | クライアント側で認可URLを組み立てる用(`META_APP_ID` と同値) |
 | `NEXT_PUBLIC_APP_URL` | ✅ | 本サイトのURL。redirect_uri の組み立てに使用 |
-| `ANTHROPIC_API_KEY` | ✅ | AI改善提案・競合分析で必須 |
+| `ANTHROPIC_API_KEY` | ✅ | AI改善提案で必須 |
 
 ### 3. 起動
 
@@ -123,8 +122,6 @@ GET /api/auth/meta/callback
 | `GET /api/auth/status` | ログイン状態確認 |
 | `POST /api/auth/logout` | Cookie 削除(Meta側のトークン無効化はしない) |
 | `GET /api/insights?breakdown=...` | 各 breakdown(daily/monthly/hourly/device/etc) のデータ取得 |
-| `GET /api/competitors` | 自動競合分析(Meta API + Claude) |
-| `POST /api/competitors` | 手動競合分析(ジャンル指定で Claude 直叩き) |
 | `POST /api/ai` | AI改善提案(集計済みデータを受領 → Claude) |
 
 ---
@@ -137,23 +134,14 @@ GET /api/auth/meta/callback
 2. **アクセストークン平文 Cookie** — 暗号化・JWT 化なし
 3. **logout が Meta 側のトークンを無効化しない** — Cookie 削除のみで最大60日有効
 4. **スコープが広い** — `ads_management` で広告の作成・編集・停止まで可能
-5. **`POST /api/ai` に認証チェックなし** — 未ログインの第三者が叩けて Anthropic 課金発生
-6. **`POST /api/competitors` に認証チェックなし** — 同上、`max_tokens 8192` で 1呼出 ≈ $0.13
+5. **`POST /api/ai` の認証** — proxy.ts の LINE セッション検証で実質保護されているが、エンドポイント内で Cookie 検証していない
 
 ### Meta API 仕様への配慮不足
 
-7. **`X-Business-Use-Case-Usage` ヘッダ未読** — レート制限接近を検知できない
-8. **`code 80000 / 4 / 17 / 190` を判別せず** 全部「Meta API error」で握りつぶし
-9. **指数バックオフ・リトライなし**
-10. **トークン期限切れ(`code 190`)を検知せずモック表示で隠蔽** — ユーザーが気づかない
-11. **キャッシュゼロで Meta を毎回叩く** — Rate Limit 直撃、レイテンシ悪化
-12. **DB なし** — 過去データを保存しないため Meta の保持期間制限に縛られる
-
-### 競合分析の構造的課題
-
-13. **Meta広告ライブラリAPI(`/ads/library/api/`)を未使用** — Claude に「実在企業10社を想像で書け」と頼んでいる
-14. **`temperature` 指定なし** — 同じ入力で違う結果
-15. **`sessionStorage` のみキャッシュ** — タブ閉じれば消失、別ユーザー間で共有されない
+6. **`X-Business-Use-Case-Usage` ヘッダ未読** — レート制限接近を検知できない
+7. **`code 80000 / 4 / 17 / 190` を判別せず** 全部「Meta API error」で握りつぶし
+8. **指数バックオフ・リトライなし**
+9. **DB なし** — 過去データを保存しないため Meta の保持期間制限に縛られる
 
 ---
 

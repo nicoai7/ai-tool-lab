@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import PageHeader from '@/components/PageHeader';
 import StarRating from '@/components/StarRating';
 import { Sparkles, TrendingDown, Target, Clock, Users, Zap, ChevronDown, ChevronUp, Filter, Loader2 } from 'lucide-react';
@@ -167,21 +167,34 @@ export default function AIAdvicePage() {
   const [aiSummary, setAiSummary] = useState<string>('全体のCPAは¥128で大幅改善されましたが、これは特定日（3/6-3/7）の大量CVによる影響が大きく、通常日のCPAは¥3,000〜¥7,000台と高止まりしています。クリック率0.74%は業界平均を下回っており、クリエイティブの訴求力向上とターゲティングの精度改善が急務です。');
   const [overallScore, setOverallScore] = useState(defaultOverallScore);
   const [aiError, setAiError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   // localStorageから復元
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      setStatuses(JSON.parse(saved));
-    } else {
-      const init: Record<string, Status> = {};
-      aiImprovements.forEach(imp => { init[imp.id] = '未対応'; });
-      setStatuses(init);
-    }
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        setStatuses(JSON.parse(saved));
+        return;
+      }
+    } catch {}
+    const init: Record<string, Status> = {};
+    aiImprovements.forEach(imp => { init[imp.id] = '未対応'; });
+    setStatuses(init);
+  }, []);
+
+  // unmount時に進行中の生成を中止
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
   }, []);
 
   // AI分析を実行
   const generateAIAdvice = async () => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setIsGenerating(true);
     setAiError(null);
     try {
@@ -197,10 +210,11 @@ export default function AIAdvicePage() {
         creatives: mockAdCreatives.map(a => ({ name: a.adName, impressions: a.impressions, clicks: a.clicks, ctr: a.ctr, cpc: a.cpc, spend: a.spend, conversions: a.conversions, cvr: a.cvr, cpa: a.cpa })),
       };
 
-      const res = await fetch('/ad-analyzer/api/ai', {
+      const res = await fetch(apiUrl('/api/ai'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: adData }),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -244,10 +258,11 @@ export default function AIAdvicePage() {
         const score = Math.max(1, Math.min(5, 5 - (highCount / total) * 3));
         setOverallScore(Math.round(score * 10) / 10);
       }
-    } catch (e: any) {
-      setAiError(e.message);
+    } catch (e: unknown) {
+      if (e instanceof DOMException && e.name === 'AbortError') return;
+      setAiError((e as Error).message);
     } finally {
-      setIsGenerating(false);
+      if (!controller.signal.aborted) setIsGenerating(false);
     }
   };
 

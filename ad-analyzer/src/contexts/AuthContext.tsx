@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { apiUrl } from '@/lib/api-url';
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -13,7 +14,7 @@ interface AuthState {
 interface AuthContextType extends AuthState {
   login: () => void;
   logout: () => void;
-  selectAccount: (accountId: string, accountName: string) => void;
+  selectAccount: (accountId: string, accountName: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -40,7 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function checkAuth() {
     try {
-      const res = await fetch('/ad-analyzer/api/auth/status');
+      const res = await fetch(apiUrl('/api/auth/status'));
       const data = await res.json();
       setState({
         isAuthenticated: data.authenticated,
@@ -55,11 +56,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   function login() {
-    window.location.href = '/ad-analyzer/api/auth/meta';
+    window.location.href = apiUrl('/api/auth/meta');
   }
 
   async function logout() {
-    await fetch('/ad-analyzer/api/auth/logout', { method: 'POST' });
+    await fetch(apiUrl('/api/auth/logout'), { method: 'POST' });
     setState({
       isAuthenticated: false,
       isLoading: false,
@@ -69,14 +70,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }
 
-  function selectAccount(accountId: string, accountName: string) {
-    fetch('/ad-analyzer/api/auth/select-account', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accountId, accountName }),
-    }).then(() => {
-      setState(prev => ({ ...prev, accountId, accountName }));
-    });
+  async function selectAccount(accountId: string, accountName: string) {
+    try {
+      const res = await fetch(apiUrl('/api/auth/select-account'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId, accountName }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `アカウント切替に失敗しました (status ${res.status})`);
+      }
+      setState(prev => ({ ...prev, accountId, accountName, error: null }));
+    } catch (e) {
+      setState(prev => ({ ...prev, error: (e as Error).message }));
+    }
   }
 
   return (

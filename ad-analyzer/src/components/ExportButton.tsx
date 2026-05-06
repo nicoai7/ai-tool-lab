@@ -15,11 +15,18 @@ export default function ExportButton({ onCSV, onExcel, onPptx, onBulk }: ExportB
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
+    const handleMouse = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', handleMouse);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleMouse);
+      document.removeEventListener('keydown', handleKey);
+    };
   }, []);
 
   const hasDropdown = onExcel || onPptx || onBulk;
@@ -40,6 +47,8 @@ export default function ExportButton({ onCSV, onExcel, onPptx, onBulk }: ExportB
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-haspopup="menu"
         className="flex items-center gap-2 px-3 py-1.5 text-sm bg-white border border-border rounded-lg hover:bg-gray-50 transition-colors text-gray-700"
       >
         <Download size={14} />
@@ -47,7 +56,7 @@ export default function ExportButton({ onCSV, onExcel, onPptx, onBulk }: ExportB
         <ChevronDown size={12} />
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 bg-white border border-border rounded-lg shadow-lg z-10 min-w-[200px]">
+        <div role="menu" className="absolute right-0 top-full mt-1 bg-white border border-border rounded-lg shadow-lg z-10 min-w-[200px]">
           <button
             onClick={() => { onCSV(); setOpen(false); }}
             className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors rounded-t-lg"

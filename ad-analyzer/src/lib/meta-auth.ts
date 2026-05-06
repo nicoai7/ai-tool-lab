@@ -1,17 +1,24 @@
 // Meta OAuth 2.0 認証ヘルパー
 
-const META_GRAPH_URL = 'https://graph.facebook.com/v21.0';
+import { randomBytes } from 'crypto';
 
-export function getMetaLoginUrl(): string {
+const META_GRAPH_URL = 'https://graph.facebook.com/v21.0';
+const BASE_PATH = '/ad-analyzer';
+
+export function generateOAuthState(): string {
+  return randomBytes(32).toString('hex');
+}
+
+export function getMetaLoginUrl(state: string): string {
   const appId = process.env.NEXT_PUBLIC_META_APP_ID;
-  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}/ad-analyzer/api/auth/meta/callback`;
+  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}${BASE_PATH}/api/auth/meta/callback`;
   const scope = [
     'ads_read',
     'ads_management',
     'business_management',
   ].join(',');
 
-  return `https://www.facebook.com/v21.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scope}&response_type=code`;
+  return `https://www.facebook.com/v21.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scope}&response_type=code&state=${state}`;
 }
 
 export async function exchangeCodeForToken(code: string): Promise<{
@@ -21,7 +28,7 @@ export async function exchangeCodeForToken(code: string): Promise<{
   const params = new URLSearchParams({
     client_id: process.env.META_APP_ID!,
     client_secret: process.env.META_APP_SECRET!,
-    redirect_uri: `${process.env.NEXT_PUBLIC_APP_URL}/ad-analyzer/api/auth/meta/callback`,
+    redirect_uri: `${process.env.NEXT_PUBLIC_APP_URL}${BASE_PATH}/api/auth/meta/callback`,
     code,
   });
 

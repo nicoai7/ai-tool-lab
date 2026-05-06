@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { BreakdownData, DailyData } from '@/types/meta';
 import * as transform from '@/lib/transform';
+import { apiUrl } from '@/lib/api-url';
 
 import {
   mockDailyData, mockMonthlyData, mockWeekdayData, mockHourlyData,
@@ -27,13 +28,13 @@ interface DateRange {
   endDate: string;
 }
 
-async function fetchFromAPI(breakdown: string, dateRange: DateRange): Promise<any[]> {
+async function fetchFromAPI(breakdown: string, dateRange: DateRange, signal?: AbortSignal): Promise<unknown[]> {
   const params = new URLSearchParams({
     breakdown,
     startDate: dateRange.startDate,
     endDate: dateRange.endDate,
   });
-  const res = await fetch(`/ad-analyzer/api/insights?${params}`);
+  const res = await fetch(`${apiUrl('/api/insights')}?${params}`, { signal });
   if (!res.ok) {
     const err = await res.json();
     throw new Error(err.error || 'データの取得に失敗しました');
@@ -42,10 +43,15 @@ async function fetchFromAPI(breakdown: string, dateRange: DateRange): Promise<an
   return json.data;
 }
 
-// 実データ取得可能かどうか（接続済み＋アカウント選択済み）
-function useCanFetchReal() {
-  const { isAuthenticated, accountId } = useAuth();
+// 認証ローディング中は null を返し、確定後に boolean を返す
+function useCanFetchReal(): boolean | null {
+  const { isAuthenticated, accountId, isLoading } = useAuth();
+  if (isLoading) return null;
   return isAuthenticated && !!accountId;
+}
+
+function isAbortError(e: unknown): boolean {
+  return e instanceof DOMException && e.name === 'AbortError';
 }
 
 export function useDailyData(dateRange: DateRange): UseAdDataResult<DailyData[]> {
@@ -54,34 +60,36 @@ export function useDailyData(dateRange: DateRange): UseAdDataResult<DailyData[]>
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const refetch = useCallback(async () => {
+  const refetch = useCallback(async (signal?: AbortSignal) => {
+    if (canFetch === null) return;
     if (!canFetch) { setData(mockDailyData); return; }
     setLoading(true);
     setError(null);
     try {
-      const raw = await fetchFromAPI('daily', dateRange);
-      if (raw.length > 0) {
-        setData(transform.toDailyData(raw));
-      } else {
-        setData(mockDailyData);
-      }
-    } catch (e: any) {
-      setError(e.message);
+      const raw = await fetchFromAPI('daily', dateRange, signal);
+      setData(raw.length > 0 ? transform.toDailyData(raw as unknown[]) : mockDailyData);
+    } catch (e) {
+      if (isAbortError(e)) return;
+      setError((e as Error).message);
       setData(mockDailyData);
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
   }, [canFetch, dateRange.startDate, dateRange.endDate]);
 
-  useEffect(() => { refetch(); }, [refetch]);
+  useEffect(() => {
+    const controller = new AbortController();
+    refetch(controller.signal);
+    return () => controller.abort();
+  }, [refetch]);
 
-  return { data, loading, error, refetch, isDemo: !canFetch };
+  return { data, loading, error, refetch: () => refetch(), isDemo: canFetch === false };
 }
 
 export function useBreakdownData(
   type: BreakdownType,
   dateRange: DateRange,
-  labelFn?: (item: any) => string
+  labelFn?: (item: unknown) => string
 ): UseAdDataResult<BreakdownData[]> {
   const canFetch = useCanFetchReal();
 
@@ -98,7 +106,7 @@ export function useBreakdownData(
     ad: mockAdCreatives,
   };
 
-  const labelFnMap: Record<string, (item: any) => string> = {
+  const labelFnMap: Record<string, (item: unknown) => string> = {
     monthly: transform.monthLabel,
     hourly: transform.hourLabel,
     device: transform.deviceLabel,
@@ -114,7 +122,8 @@ export function useBreakdownData(
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const refetch = useCallback(async () => {
+  const refetch = useCallback(async (signal?: AbortSignal) => {
+    if (canFetch === null) return;
     if (!canFetch) {
       setData(mockMap[type] || []);
       return;
@@ -123,29 +132,36 @@ export function useBreakdownData(
     setError(null);
     try {
       if (type === 'weekday') {
-        const raw = await fetchFromAPI('daily', dateRange);
-        const daily = transform.toDailyData(raw);
+        const raw = await fetchFromAPI('daily', dateRange, signal);
+        const daily = transform.toDailyData(raw as unknown[]);
         setData(transform.aggregateByWeekday(daily));
       } else {
-        const raw = await fetchFromAPI(type, dateRange);
+        const raw = await fetchFromAPI(type, dateRange, signal);
         if (raw.length > 0) {
-          const fn = labelFn || labelFnMap[type] || ((item: any) => item.date_start || '');
-          setData(transform.toBreakdownData(raw, fn));
+          const fn = labelFn || labelFnMap[type] || ((item: unknown) => (item as { date_start?: string }).date_start || '');
+          setData(transform.toBreakdownData(raw as unknown[], fn));
         } else {
           setData(mockMap[type] || []);
         }
       }
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e) {
+      if (isAbortError(e)) return;
+      setError((e as Error).message);
       setData(mockMap[type] || []);
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
+    // mockMap, labelFnMap, labelFn は依存に含めずクロージャで参照（識別性は type で取れるため）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canFetch, type, dateRange.startDate, dateRange.endDate]);
 
-  useEffect(() => { refetch(); }, [refetch]);
+  useEffect(() => {
+    const controller = new AbortController();
+    refetch(controller.signal);
+    return () => controller.abort();
+  }, [refetch]);
 
-  return { data, loading, error, refetch, isDemo: !canFetch };
+  return { data, loading, error, refetch: () => refetch(), isDemo: canFetch === false };
 }
 
 export function useAccountSummary(dateRange: DateRange) {
@@ -155,28 +171,30 @@ export function useAccountSummary(dateRange: DateRange) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const refetch = useCallback(async () => {
+  const refetch = useCallback(async (signal?: AbortSignal) => {
+    if (canFetch === null) return;
     if (!canFetch) { setData(mockAccountSummary); return; }
     setLoading(true);
     try {
-      const raw = await fetchFromAPI('summary', dateRange);
-      const summary = transform.toAccountSummary(raw, accountName || '');
-      if (summary) {
-        setData(summary);
-      } else {
-        setData(mockAccountSummary);
-      }
-    } catch (e: any) {
-      setError(e.message);
+      const raw = await fetchFromAPI('summary', dateRange, signal);
+      const summary = transform.toAccountSummary(raw as unknown[], accountName || '');
+      setData(summary || mockAccountSummary);
+    } catch (e) {
+      if (isAbortError(e)) return;
+      setError((e as Error).message);
       setData(mockAccountSummary);
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
   }, [canFetch, dateRange.startDate, dateRange.endDate, accountName]);
 
-  useEffect(() => { refetch(); }, [refetch]);
+  useEffect(() => {
+    const controller = new AbortController();
+    refetch(controller.signal);
+    return () => controller.abort();
+  }, [refetch]);
 
-  return { data, loading, error, refetch, isDemo: !canFetch };
+  return { data, loading, error, refetch: () => refetch(), isDemo: canFetch === false };
 }
 
 export function useKPIs() {
@@ -185,6 +203,6 @@ export function useKPIs() {
     kpis: mockKPIs,
     conversionKPIs: mockConversionKPIs,
     costKPIs: mockCostKPIs,
-    isDemo: !canFetch,
+    isDemo: canFetch === false,
   };
 }

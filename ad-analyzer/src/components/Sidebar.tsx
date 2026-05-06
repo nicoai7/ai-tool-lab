@@ -18,7 +18,6 @@ import {
   MapPin,
   Sparkles,
   Settings,
-  Swords,
   LogIn,
   FileDown,
   type LucideIcon,
@@ -53,7 +52,6 @@ const navItems: (NavItem | NavDivider)[] = [
   { href: '/demographics/region', label: '地域', icon: MapPin },
   { type: 'divider', label: 'AI分析' },
   { href: '/ai-advice', label: '改善スコアリング', icon: Sparkles },
-  { href: '/competitors', label: '競合分析', icon: Swords },
   { type: 'divider', label: '出力' },
   { href: '/export', label: '一括出力', icon: FileDown },
 ];
