@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/ad-analyzer/:path*",
+      "destination": "https://ad-analyzer-ten.vercel.app/ad-analyzer/:path*"
+    },
+    {
+      "source": "/seo/:path*",
+      "destination": "https://seo-improve-tool.vercel.app/seo/:path*"
+    },
+    {
+      "source": "/email/:path*",
+      "destination": "https://email-tool-lime-kappa.vercel.app/email/:path*"
+    }
+  ]
+}
