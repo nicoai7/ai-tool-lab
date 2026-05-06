@@ -1,7 +1,14 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
-  /* config options here */
-};
+  cacheComponents: true,
+  images: {
+    remotePatterns: [
+      { protocol: 'https', hostname: 'profile.line-scdn.net' },
+      { protocol: 'https', hostname: 'qr-official.line.me' },
+    ],
+  },
+  poweredByHeader: false,
+}
 
-export default nextConfig;
+export default nextConfig

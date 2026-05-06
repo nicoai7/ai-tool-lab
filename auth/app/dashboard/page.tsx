@@ -1,7 +1,6 @@
 import Link from 'next/link'
-import { redirect } from 'next/navigation'
-import { getSession } from '@/lib/session'
-import { checkFriendship } from '@/lib/line/friendship'
+import { Suspense } from 'react'
+import { DashboardHero, DashboardHeroFallback } from './dashboard-content'
 
 type Tool = {
   name: string
@@ -57,26 +56,7 @@ const TOOLS: Tool[] = [
   },
 ]
 
-/* Brand palette
-   navy  : #0e1a3b  — primary text / heading
-   navy-2: #1e2a52
-   gold  : #b89758  — accent line / decoration
-   gold-l: #d4b87a
-   paper : #faf8f1  — base background
-   rule  : #e8e2d1  — hairline border (warm)
-*/
-
-export default async function DashboardPage() {
-  const session = await getSession()
-  if (!session) redirect('/login?redirect=/dashboard')
-
-  const stillFriend = await checkFriendship(session.accessToken)
-  if (!stillFriend) {
-    redirect(`/not-friend?name=${encodeURIComponent(session.name)}`)
-  }
-
-  const displayName = session.name || 'お客様'
-
+export default function DashboardPage() {
   return (
     <main
       className="relative min-h-screen overflow-hidden"
@@ -118,7 +98,6 @@ export default async function DashboardPage() {
           <rect width="100%" height="100%" fill="url(#net)" />
           <rect width="100%" height="100%" fill="url(#netMask)" style={{ mixBlendMode: 'lighten' }} />
         </svg>
-        {/* very subtle grain via noise-ish gradient */}
         <div
           className="absolute inset-0"
           style={{
@@ -170,34 +149,12 @@ export default async function DashboardPage() {
       </header>
 
       <div className="relative z-10 max-w-6xl mx-auto px-6 pt-14 pb-20">
-        {/* Hero */}
-        <section className="mb-12">
-          <div className="flex items-center gap-3 mb-5">
-            <span className="h-px w-10" style={{ backgroundColor: '#b89758' }} />
-            <span className="text-[10.5px] tracking-[0.32em] uppercase font-medium" style={{ color: '#b89758' }}>
-              Your Toolkit
-            </span>
-            <span className="h-px flex-1" style={{ backgroundColor: '#e8e2d1' }} />
-          </div>
-          <h2
-            className="font-bold tracking-tight"
-            style={{
-              fontSize: 'clamp(28px, 4.2vw, 40px)',
-              lineHeight: 1.2,
-              color: '#0e1a3b',
-              letterSpacing: '0.01em',
-            }}
-          >
-            ようこそ、
-            <span style={{ color: '#b89758' }}>{displayName}</span>
-            さん
-          </h2>
-          <p className="mt-4 text-[14px] max-w-xl leading-relaxed" style={{ color: '#4a5168' }}>
-            3つのAIツールを無料でご利用いただけます。各ツールカードから、お使いのツールをお選びください。
-          </p>
-        </section>
+        {/* Hero — 認証＋friendship判定の動的部分。Suspenseで分離してシェルを先に流す */}
+        <Suspense fallback={<DashboardHeroFallback />}>
+          <DashboardHero />
+        </Suspense>
 
-        {/* Tools */}
+        {/* Tools grid — 完全静的なのでキャッシュ可能 */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {TOOLS.map((tool) => (
             <ToolCard key={tool.name} tool={tool} />
@@ -306,12 +263,10 @@ function ToolCard({ tool }: { tool: Tool }) {
         className="relative h-28 overflow-hidden"
         style={{ background: tool.accent }}
       >
-        {/* soft inner vignette */}
         <div
           className="absolute inset-0"
           style={{ background: 'radial-gradient(ellipse at top right, rgba(255,255,255,0.45), transparent 60%)' }}
         />
-        {/* decorative network lines inside strip */}
         <svg className="absolute inset-0 w-full h-full opacity-30" preserveAspectRatio="none">
           <line x1="0" y1="60%" x2="100%" y2="30%" stroke={tool.ink} strokeWidth="0.4" />
           <line x1="0" y1="80%" x2="100%" y2="55%" stroke={tool.ink} strokeWidth="0.3" />
@@ -348,7 +303,6 @@ function ToolCard({ tool }: { tool: Tool }) {
         </div>
       </div>
 
-      {/* Gold hairline divider */}
       <div className="relative">
         <div className="absolute left-6 right-6 top-0 h-px" style={{ backgroundColor: '#e8e2d1' }} />
         <div

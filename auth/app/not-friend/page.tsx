@@ -1,15 +1,12 @@
 import Link from 'next/link'
+import { Suspense } from 'react'
 import { getAddFriendUrl, getBasicId } from '@/lib/line/friendship'
 
-export const dynamic = 'force-dynamic'
-
-export default async function NotFriendPage({
+export default function NotFriendPage({
   searchParams,
 }: {
   searchParams: Promise<{ name?: string }>
 }) {
-  const params = await searchParams
-  const name = params?.name
   const addUrl = getAddFriendUrl()
   const basicId = getBasicId()
   const qrUrl = `https://qr-official.line.me/sid/M/${basicId.replace('@', '')}.png`
@@ -87,7 +84,10 @@ export default async function NotFriendPage({
           className="text-3xl sm:text-[34px] font-bold tracking-tight mb-4 leading-tight"
           style={{ color: '#0e1a3b', letterSpacing: '0.01em' }}
         >
-          {name ? `${name}さん、` : ''}公式LINEへの
+          <Suspense fallback={null}>
+            <Greeting searchParams={searchParams} />
+          </Suspense>
+          公式LINEへの
           <br />
           友だち登録をお願いします
         </h1>
@@ -163,4 +163,15 @@ export default async function NotFriendPage({
       </div>
     </main>
   )
+}
+
+async function Greeting({
+  searchParams,
+}: {
+  searchParams: Promise<{ name?: string }>
+}) {
+  const params = await searchParams
+  const name = params?.name
+  if (!name) return null
+  return <>{name}さん、</>
 }
