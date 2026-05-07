@@ -1,23 +1,9 @@
 import { auth } from "@/lib/auth";
-import { getGmailAccounts, supabaseAdmin } from "@/lib/supabase";
-import { fetchRecentEmails, RawEmail } from "@/lib/gmail";
+import { getGmailAccounts } from "@/lib/supabase";
+import { fetchRecentEmails, RawEmail, GmailAuthError, GmailRateLimitError } from "@/lib/gmail";
 import { analyzeEmails } from "@/lib/analyzer";
-import { google } from "googleapis";
+import { ensureFreshToken } from "@/lib/resolve-token";
 import { NextRequest } from "next/server";
-
-async function refreshAccessToken(refreshToken: string): Promise<string | null> {
-  const oauth2Client = new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET
-  );
-  oauth2Client.setCredentials({ refresh_token: refreshToken });
-  try {
-    const { credentials } = await oauth2Client.refreshAccessToken();
-    return credentials.access_token || null;
-  } catch {
-    return null;
-  }
-}
 
 export async function GET(request: NextRequest) {
   const session = await auth();
@@ -25,7 +11,7 @@ export async function GET(request: NextRequest) {
     return Response.json({ error: "未認証です" }, { status: 401 });
   }
 
-  const ownerEmail = (session as any).ownerEmail || session.user.email;
+  const ownerEmail = session.ownerEmail ?? session.user.email;
   const allAccounts = await getGmailAccounts(ownerEmail);
   if (allAccounts.length === 0) {
     return Response.json({ error: "アカウントが登録されていません" }, { status: 404 });
@@ -33,12 +19,17 @@ export async function GET(request: NextRequest) {
 
   const searchParams = request.nextUrl.searchParams;
 
-  // 指定されたaccountIdsでフィルター
   const accountIdsParam = searchParams.get("accountIds");
-  const accountIds = accountIdsParam ? accountIdsParam.split(",") : null;
+  const accountIds = accountIdsParam
+    ? accountIdsParam.split(",").map((s) => s.trim()).filter(Boolean)
+    : null;
   const accounts = accountIds
     ? allAccounts.filter((a) => accountIds.includes(a.id))
     : allAccounts;
+  if (accounts.length === 0) {
+    return Response.json({ error: "対象アカウントがありません" }, { status: 400 });
+  }
+
   const hoursParam = searchParams.get("hours");
   const sinceParam = searchParams.get("since");
   const fromParam = searchParams.get("from");
@@ -61,53 +52,53 @@ export async function GET(request: NextRequest) {
     afterTimestamp = Math.floor((Date.now() - hours * 60 * 60 * 1000) / 1000);
   }
 
+  if (!Number.isFinite(afterTimestamp) || (beforeTimestamp !== undefined && beforeTimestamp <= afterTimestamp)) {
+    return Response.json({ error: "期間指定が不正です" }, { status: 400 });
+  }
+
   try {
-    // 全アカウントから並列でメール取得
-    const allEmails: (RawEmail & { accountEmail: string; accountId: string })[] = [];
+    type EnrichedEmail = RawEmail & { accountEmail: string; accountId: string };
+    const skippedAccounts: string[] = [];
 
-    await Promise.all(
-      accounts.map(async (account) => {
-        let token = account.access_token;
-
-        // トークン期限切れチェック
-        const now = Math.floor(Date.now() / 1000);
-        if (account.expires_at && account.expires_at < now && account.refresh_token) {
-          const newToken = await refreshAccessToken(account.refresh_token);
-          if (newToken) {
-            token = newToken;
-            await supabaseAdmin
-              .from("gmail_accounts")
-              .update({ access_token: newToken, updated_at: new Date().toISOString() })
-              .eq("id", account.id);
-          } else {
-            return; // このアカウントはスキップ
-          }
+    const perAccount = await Promise.all(
+      accounts.map(async (account): Promise<EnrichedEmail[]> => {
+        const token = await ensureFreshToken(account);
+        if (!token) {
+          skippedAccounts.push(account.gmail_email);
+          return [];
         }
-
         try {
-          const emails = await fetchRecentEmails(token, afterTimestamp, beforeTimestamp);
-          for (const email of emails) {
-            allEmails.push({
-              ...email,
-              accountEmail: account.gmail_email,
-              accountId: account.id,
-            });
-          }
+          const emails = await fetchRecentEmails(token, { afterTimestamp, beforeTimestamp });
+          return emails.map((e) => ({
+            ...e,
+            accountEmail: account.gmail_email,
+            accountId: account.id,
+          }));
         } catch (e) {
-          console.error(`${account.gmail_email} のメール取得エラー:`, e);
+          if (e instanceof GmailAuthError) {
+            skippedAccounts.push(`${account.gmail_email} (auth)`);
+            return [];
+          }
+          if (e instanceof GmailRateLimitError) {
+            skippedAccounts.push(`${account.gmail_email} (rate limit)`);
+            return [];
+          }
+          console.error(`${account.gmail_email} のメール取得エラー:`, (e as Error).message);
+          return [];
         }
-      })
+      }),
     );
 
+    const allEmails = perAccount.flat();
     const analyzed = await analyzeEmails(allEmails);
 
-    // accountEmail情報を付与
+    // analyzeEmails は入力順を保つので index で結合（N×N 解消）
     const withAccount = analyzed.map((email, i) => {
-      const raw = allEmails.find((r) => r.id === email.id);
+      const raw = allEmails[i];
       return {
         ...email,
-        accountEmail: raw?.accountEmail || "",
-        accountId: raw?.accountId || "",
+        accountEmail: raw?.accountEmail ?? "",
+        accountId: raw?.accountId ?? "",
       };
     });
 
@@ -122,9 +113,9 @@ export async function GET(request: NextRequest) {
       skip: withAccount.filter((e) => e.priority === "skip").length,
     };
 
-    return Response.json({ emails: withAccount, counts });
-  } catch (error: any) {
-    console.error("統合メール取得エラー:", error);
+    return Response.json({ emails: withAccount, counts, skippedAccounts });
+  } catch (e) {
+    console.error("統合メール取得エラー:", (e as Error).message);
     return Response.json({ error: "メールの取得に失敗しました" }, { status: 500 });
   }
 }

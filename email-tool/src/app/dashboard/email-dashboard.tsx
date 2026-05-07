@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { withBasePath } from "@/lib/paths";
 
 interface EmailDetail {
   id: string;
@@ -87,7 +88,7 @@ export function EmailDashboard({ selectedAccountIds }: { selectedAccountIds: str
   const [dateTo, setDateTo] = useState("");
 
   // アカウント切り替え時にリセット
-  const accountKey = selectedAccountIds.sort().join(",");
+  const accountKey = useMemo(() => [...selectedAccountIds].sort().join(","), [selectedAccountIds]);
   useEffect(() => {
     setData(null);
     setPreview(null);
@@ -95,7 +96,14 @@ export function EmailDashboard({ selectedAccountIds }: { selectedAccountIds: str
     setHandledIds(new Set());
   }, [accountKey]);
 
+  // 連打レース対策：直近のリクエストだけが反映されるようにする
+  const fetchAbortRef = useRef<AbortController | null>(null);
+
   const fetchEmails = async () => {
+    fetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    fetchAbortRef.current = controller;
+
     setLoading(true);
     setError(null);
     try {
@@ -108,24 +116,30 @@ export function EmailDashboard({ selectedAccountIds }: { selectedAccountIds: str
         if (dateFrom) params.set("from", dateFrom);
         if (dateTo) params.set("to", dateTo);
       }
+      if (selectedAccountIds.length === 0) {
+        throw new Error("アカウントが選択されていません");
+      }
       const isMultiple = selectedAccountIds.length !== 1;
       if (isMultiple) {
         params.set("accountIds", selectedAccountIds.join(","));
-      } else if (selectedAccountIds.length === 1) {
+      } else {
         params.set("accountId", selectedAccountIds[0]);
       }
-      const endpoint = isMultiple ? "/email/api/emails/all" : "/email/api/emails";
-      const res = await fetch(`${endpoint}?${params}`);
+      const endpoint = isMultiple ? "/api/emails/all" : "/api/emails";
+      const res = await fetch(`${withBasePath(endpoint)}?${params}`, { signal: controller.signal });
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "エラーが発生しました");
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as { error?: string }).error || "エラーが発生しました");
       }
       const result = await res.json();
+      // 古いリクエストの結果は捨てる
+      if (controller.signal.aborted) return;
       setData(result);
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e) {
+      if ((e as Error).name === "AbortError") return; // 上書きされただけ
+      setError((e as Error).message);
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   };
 
@@ -146,18 +160,63 @@ export function EmailDashboard({ selectedAccountIds }: { selectedAccountIds: str
       alert("未読メールはありません");
       return;
     }
+    if (!data) return;
+
+    // accountId ごとにグルーピング（複数アカウント時は別 token を使うため必須）
+    const groups = new Map<string, string[]>();
+    for (const id of ids) {
+      const email = data.emails.find((e) => e.id === id);
+      const accountId = email?.accountId || (selectedAccountIds.length === 1 ? selectedAccountIds[0] : undefined);
+      if (!accountId) continue;
+      const arr = groups.get(accountId) ?? [];
+      arr.push(id);
+      groups.set(accountId, arr);
+    }
+    if (groups.size === 0) {
+      alert("対象アカウントを特定できませんでした");
+      return;
+    }
+
     setMarkingRead(true);
     try {
-      const res = await fetch("/email/api/emails/mark-read", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messageIds: ids, accountId: selectedAccountIds.length === 1 ? selectedAccountIds[0] : undefined }),
-      });
-      if (res.ok) {
-        alert(`${ids.length}通を既読にしました`);
+      const responses = await Promise.all(
+        Array.from(groups.entries()).map(async ([accountId, messageIds]) => {
+          const res = await fetch(withBasePath("/api/emails/mark-read"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ messageIds, accountId }),
+          });
+          return { accountId, res, messageIds };
+        }),
+      );
+
+      const failedIds = new Set<string>();
+      for (const { res, messageIds } of responses) {
+        if (!res.ok) {
+          messageIds.forEach((id) => failedIds.add(id));
+          continue;
+        }
+        const json = (await res.json().catch(() => ({}))) as { failedIds?: string[] };
+        (json.failedIds ?? []).forEach((id) => failedIds.add(id));
+      }
+
+      // 楽観的更新：成功した ID は isUnread=false にして UI を即同期
+      const successIds = ids.filter((id) => !failedIds.has(id));
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              emails: prev.emails.map((e) =>
+                successIds.includes(e.id) ? { ...e, isUnread: false } : e,
+              ),
+            }
+          : prev,
+      );
+
+      if (failedIds.size === 0) {
+        alert(`${successIds.length}通を既読にしました`);
       } else {
-        const err = await res.json();
-        alert(err.error || "既読処理に失敗しました");
+        alert(`${successIds.length}通成功 / ${failedIds.size}通失敗`);
       }
     } catch {
       alert("既読処理に失敗しました");
@@ -171,20 +230,28 @@ export function EmailDashboard({ selectedAccountIds }: { selectedAccountIds: str
     setPreviewLoading(true);
     setPreview(null);
     try {
-      // メールに紐づくaccountIdを使う（統合モード対応）
-      let previewAccountId = selectedAccountIds.length === 1 ? selectedAccountIds[0] : null;
-      if (selectedAccountIds.length > 1 && data) {
+      // メールに紐づくaccountIdを使う。各メールに accountId が付与されている前提（API 側で付与済み）
+      let previewAccountId: string | null = null;
+      if (data) {
         const email = data.emails.find((e) => e.id === emailId);
-        if (email?.accountId) previewAccountId = email.accountId;
+        previewAccountId = email?.accountId ?? null;
       }
-      const previewParams = previewAccountId ? `?accountId=${previewAccountId}` : "";
-      const res = await fetch(`/email/api/emails/${emailId}${previewParams}`);
+      if (!previewAccountId && selectedAccountIds.length === 1) {
+        previewAccountId = selectedAccountIds[0];
+      }
+      if (!previewAccountId) {
+        setPreviewEmailId(null);
+        return;
+      }
+      const params = new URLSearchParams({ accountId: previewAccountId });
+      const res = await fetch(`${withBasePath(`/api/emails/${emailId}`)}?${params}`);
       if (res.ok) {
         const detail = await res.json();
         setPreview(detail);
+      } else {
+        setPreviewEmailId(null);
       }
     } catch {
-      // 失敗時はモーダルを閉じる
       setPreviewEmailId(null);
     } finally {
       setPreviewLoading(false);
@@ -210,7 +277,15 @@ export function EmailDashboard({ selectedAccountIds }: { selectedAccountIds: str
     return match ? match[1].trim() : from.split("@")[0];
   };
 
-  const today = new Date().toISOString().split("T")[0];
+  // クライアントマウント後に「今日」と現在日付見出しを計算する。Cache Components 下では
+  // Client Component 内の `new Date()` 直接参照が prerender エラーを起こすため、初期値は空文字。
+  const [today, setToday] = useState("");
+  const [dateStr, setDateStr] = useState("");
+  useEffect(() => {
+    const now = new Date();
+    setToday(now.toISOString().split("T")[0]);
+    setDateStr(`${now.getMonth() + 1}/${now.getDate()}`);
+  }, []);
 
   const filterUI = (
     <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/60">
@@ -338,9 +413,6 @@ export function EmailDashboard({ selectedAccountIds }: { selectedAccountIds: str
   }
 
   if (!data) return null;
-
-  const now = new Date();
-  const dateStr = `${now.getMonth() + 1}/${now.getDate()}`;
 
   // 既読/未読フィルター
   const readFiltered = data.emails.filter((e) => {

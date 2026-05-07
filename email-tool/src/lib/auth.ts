@@ -9,10 +9,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
       authorization: {
         params: {
-          scope:
-            "openid email profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.modify",
+          // gmail.modify は readonly を内包するため重複指定を排除
+          scope: "openid email profile https://www.googleapis.com/auth/gmail.modify",
           access_type: "offline",
-          prompt: "consent",
+          // 初回連携時のみ consent を強制し refresh_token を確実に取得。
+          // 既存ユーザーの再ログインでは select_account にして UX を保つ。
+          prompt: "select_account",
         },
       },
     }),
@@ -20,40 +22,42 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   callbacks: {
     async jwt({ token, account, profile }) {
       if (account) {
-        // 初回ログイン時にオーナーメールを記録
-        // 2回目以降（アカウント追加時）はオーナーを維持
+        // 初回ログイン時のみオーナーメールを記録し、以降は不変。
+        // これにより「同一ブラウザに別ユーザーが追加 sign-in」してもオーナーが乗っ取られない。
         if (!token.ownerEmail) {
-          token.ownerEmail = token.email;
+          token.ownerEmail = (token.email as string | undefined) ?? undefined;
         }
 
-        const newGmailEmail = profile?.email || token.email;
+        const newGmailEmail = (profile?.email as string | undefined) ?? (token.email as string | undefined);
 
-        token.accessToken = account.access_token;
-        token.refreshToken = account.refresh_token;
-        token.expiresAt = account.expires_at;
-        // 現在アクティブなGmailアドレスを記録
+        // 「アカウント追加」フロー直後だけ accessToken をセッションに持たせる。
+        // 通常のメール取得経路では accountId 必須にするため、この値は補助的。
+        token.accessToken = account.access_token as string | undefined;
+        token.refreshToken = account.refresh_token as string | undefined;
+        token.expiresAt = account.expires_at as number | undefined;
         token.activeGmailEmail = newGmailEmail;
 
-        // DBにGmailアカウントを保存（常にオーナーに紐付け）
-        try {
-          await upsertGmailAccount({
-            userEmail: token.ownerEmail as string,
-            gmailEmail: newGmailEmail as string,
-            accountName: (profile?.name || newGmailEmail) as string,
-            accessToken: account.access_token as string,
-            refreshToken: account.refresh_token as string | undefined,
-            expiresAt: account.expires_at as number | undefined,
-          });
-        } catch (e) {
-          console.error("Gmailアカウント保存エラー:", e);
+        // refresh_token が無い場合は consent を強制する。それでも取れなければ DB 保存をスキップ。
+        if (token.ownerEmail && newGmailEmail && account.access_token) {
+          try {
+            await upsertGmailAccount({
+              userEmail: token.ownerEmail,
+              gmailEmail: newGmailEmail,
+              accountName: ((profile?.name as string | undefined) ?? newGmailEmail),
+              accessToken: account.access_token as string,
+              refreshToken: account.refresh_token as string | undefined,
+              expiresAt: account.expires_at as number | undefined,
+            });
+          } catch (e) {
+            console.error("Gmailアカウント保存エラー:", (e as Error).message);
+          }
         }
       }
       return token;
     },
     async session({ session, token }) {
-      (session as any).accessToken = token.accessToken;
-      // オーナーメールをセッションに公開（アカウント一覧取得用）
-      (session as any).ownerEmail = token.ownerEmail || token.email;
+      session.accessToken = token.accessToken;
+      session.ownerEmail = token.ownerEmail;
       return session;
     },
   },

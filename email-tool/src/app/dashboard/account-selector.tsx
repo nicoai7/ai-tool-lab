@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { withBasePath } from "@/lib/paths";
 
 interface Account {
   id: string;
@@ -18,35 +19,32 @@ export function AccountSelector({ selectedAccountIds, onChangeSelection }: Accou
   const [loading, setLoading] = useState(true);
   const [showMenu, setShowMenu] = useState(false);
 
-  const fetchAccounts = async () => {
+  const fetchAccounts = useCallback(async () => {
     try {
-      const res = await fetch("/email/api/accounts");
+      const res = await fetch(withBasePath("/api/accounts"));
       if (res.ok) {
-        const data = await res.json();
+        const data = (await res.json()) as { accounts: Account[] };
         setAccounts(data.accounts);
-        // 初回：全アカウントを選択
         if (data.accounts.length > 0 && selectedAccountIds.length === 0) {
-          onChangeSelection(data.accounts.map((a: Account) => a.id));
+          onChangeSelection(data.accounts.map((a) => a.id));
         }
       }
-    } catch {
-      // エラーは無視
+    } catch (e) {
+      // ネットワーク不通などは静かに無視（UI には「未認証」へ誘導するボタンが残る）
+      console.error("アカウント取得失敗:", (e as Error).message);
     } finally {
       setLoading(false);
     }
-  };
+  }, [onChangeSelection, selectedAccountIds.length]);
 
   useEffect(() => {
     fetchAccounts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const addAccount = () => {
-    window.location.href = "/email/api/accounts/add";
-  };
 
   const removeAccount = async (id: string) => {
     if (!confirm("このアカウントを削除しますか？")) return;
-    const res = await fetch("/email/api/accounts", {
+    const res = await fetch(withBasePath("/api/accounts"), {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
@@ -60,7 +58,6 @@ export function AccountSelector({ selectedAccountIds, onChangeSelection }: Accou
 
   const toggleAccount = (id: string) => {
     if (selectedAccountIds.includes(id)) {
-      // 最低1つは選択を維持
       if (selectedAccountIds.length <= 1) return;
       onChangeSelection(selectedAccountIds.filter((sid) => sid !== id));
     } else {
@@ -70,18 +67,17 @@ export function AccountSelector({ selectedAccountIds, onChangeSelection }: Accou
 
   const toggleAll = () => {
     if (selectedAccountIds.length === accounts.length) {
-      // 全選択中 → 最初の1つだけ残す
       onChangeSelection([accounts[0].id]);
     } else {
       onChangeSelection(accounts.map((a) => a.id));
     }
   };
 
-  const allSelected = selectedAccountIds.length === accounts.length;
+  const allSelected = accounts.length > 0 && selectedAccountIds.length === accounts.length;
 
   // 表示ラベル
   const label = (() => {
-    if (accounts.length === 0) return "アカウント選択";
+    if (accounts.length === 0) return "アカウント未登録";
     if (allSelected) return `全アカウント (${accounts.length})`;
     if (selectedAccountIds.length === 1) {
       const acc = accounts.find((a) => a.id === selectedAccountIds[0]);
@@ -92,6 +88,21 @@ export function AccountSelector({ selectedAccountIds, onChangeSelection }: Accou
 
   if (loading) {
     return <div className="h-8 w-40 animate-pulse rounded-lg bg-slate-200" />;
+  }
+
+  // アカウント未登録時は「追加」ボタンを直接表示
+  if (accounts.length === 0) {
+    return (
+      <form action={withBasePath("/api/accounts/add")} method="post">
+        <button
+          type="submit"
+          className="flex items-center gap-2 rounded-lg border border-[#1a73e8] bg-white px-3 py-1.5 text-sm font-medium text-[#1a73e8] transition hover:bg-blue-50"
+        >
+          <span className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-[#1a73e8] text-[12px] leading-none">+</span>
+          Gmailアカウントを連携
+        </button>
+      </form>
+    );
   }
 
   return (
@@ -130,7 +141,6 @@ export function AccountSelector({ selectedAccountIds, onChangeSelection }: Accou
               表示するアカウントを選択
             </div>
 
-            {/* 全選択/解除 */}
             {accounts.length >= 2 && (
               <button
                 onClick={toggleAll}
@@ -154,7 +164,6 @@ export function AccountSelector({ selectedAccountIds, onChangeSelection }: Accou
 
             <div className="my-1 border-t border-slate-100" />
 
-            {/* 各アカウント */}
             {accounts.map((account) => {
               const isChecked = selectedAccountIds.includes(account.id);
               return (
@@ -200,20 +209,20 @@ export function AccountSelector({ selectedAccountIds, onChangeSelection }: Accou
               );
             })}
 
-            <div className="mt-1 border-t border-slate-100 pt-1">
-              <button
-                onClick={() => {
-                  setShowMenu(false);
-                  addAccount();
-                }}
-                className="flex w-full items-center gap-3 px-3 py-2 text-sm text-[#1a73e8] transition hover:bg-slate-50"
-              >
-                <div className="h-4 w-4" />
-                <span className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-dashed border-slate-300 text-slate-400">
-                  +
-                </span>
-                別のGmailアカウントを追加
-              </button>
+            <div className="mt-1 border-t border-slate-100 pt-1 px-3 py-1">
+              {/* GET → CSRF 起点になり得るため form POST */}
+              <form action={withBasePath("/api/accounts/add")} method="post">
+                <button
+                  type="submit"
+                  className="flex w-full items-center gap-3 py-2 text-sm text-[#1a73e8] transition hover:bg-slate-50"
+                >
+                  <div className="h-4 w-4" />
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-dashed border-slate-300 text-slate-400">
+                    +
+                  </span>
+                  別のGmailアカウントを追加
+                </button>
+              </form>
             </div>
           </div>
         </>
